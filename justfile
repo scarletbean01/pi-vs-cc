@@ -55,7 +55,7 @@ ext-tilldone:
 
 # 10. Agent team: dispatcher orchestrator with team select and grid dashboard
 ext-agent-team:
-    pi -e extensions/agent-team.ts -e extensions/theme-cycler.ts
+    pi -e extensions/agent-team.ts -e extensions/theme-cycler.ts -e extensions/tool-counter-widget.ts
 
 # 11. System select: /system to pick an agent persona as system prompt
 ext-system-select:

@@ -24,6 +24,7 @@ import { spawn } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
+import { resolveModel } from "./model-utils.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -33,6 +34,7 @@ interface AgentDef {
 	tools: string;
 	systemPrompt: string;
 	file: string;
+	model?: string;   // raw frontmatter value: alias or provider/id
 }
 
 interface AgentState {
@@ -98,6 +100,7 @@ function parseAgentFile(filePath: string): AgentDef | null {
 			tools: frontmatter.tools || "read,grep,find,ls",
 			systemPrompt: match[2].trim(),
 			file: filePath,
+			model: frontmatter.model || undefined,
 		};
 	} catch {
 		return null;
@@ -223,6 +226,16 @@ export default function (pi: ExtensionAPI) {
 		const statusLine = theme.fg(statusColor, statusStr + timeStr);
 		const statusVisible = statusStr.length + timeStr.length;
 
+		// Model label
+		const modelLabel = state.def.model
+			? (state.def.model.includes("/")
+				? state.def.model.split("/").pop()!
+				: state.def.model)
+			: "inherited";
+		const modelStr = `◆ ${modelLabel}`;
+		const modelLine = theme.fg("dim", modelStr);
+		const modelVisible = modelStr.length;
+
 		// Context bar: 5 blocks + percent
 		const filled = Math.ceil(state.contextPct / 20);
 		const bar = "#".repeat(filled) + "-".repeat(5 - filled);
@@ -246,6 +259,7 @@ export default function (pi: ExtensionAPI) {
 			theme.fg("dim", top),
 			border(" " + nameStr, 1 + nameVisible),
 			border(" " + statusLine, 1 + statusVisible),
+			border(" " + modelLine, 1 + modelVisible),
 			border(" " + ctxLine, 1 + ctxVisible),
 			border(" " + workLine, 1 + workVisible),
 			theme.fg("dim", bot),
@@ -276,7 +290,7 @@ export default function (pi: ExtensionAPI) {
 						const cards = rowAgents.map(a => renderCard(a, colWidth, theme));
 
 						while (cards.length < cols) {
-							cards.push(Array(6).fill(" ".repeat(colWidth)));
+							cards.push(Array(cards[0]?.length ?? 6).fill(" ".repeat(colWidth)));
 						}
 
 						const cardHeight = cards[0].length;
@@ -335,9 +349,7 @@ export default function (pi: ExtensionAPI) {
 			updateWidget();
 		}, 1000);
 
-		const model = ctx.model
-			? `${ctx.model.provider}/${ctx.model.id}`
-			: "openrouter/google/gemini-3-flash-preview";
+		const model = resolveModel(state.def.model, ctx.model);
 
 		// Session file for this agent
 		const agentKey = state.def.name.toLowerCase().replace(/\s+/g, "-");
@@ -628,10 +640,13 @@ export default function (pi: ExtensionAPI) {
 
 	// ── System Prompt Override ───────────────────
 
-	pi.on("before_agent_start", async (_event, _ctx) => {
+	pi.on("before_agent_start", async (_event, ctx) => {
 		// Build dynamic agent catalog from active team only
 		const agentCatalog = Array.from(agentStates.values())
-			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}`)
+			.map(s => {
+				const modelLabel = resolveModel(s.def.model, ctx.model);
+				return `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}\n**Model:** ${modelLabel}`;
+			})
 			.join("\n\n");
 
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");

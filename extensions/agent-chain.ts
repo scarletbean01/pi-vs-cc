@@ -28,6 +28,7 @@ import { spawn } from "child_process";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
+import { resolveModel } from "./model-utils.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -47,6 +48,7 @@ interface AgentDef {
 	description: string;
 	tools: string;
 	systemPrompt: string;
+	model?: string;   // raw frontmatter value: alias or provider/id
 }
 
 interface StepState {
@@ -153,6 +155,7 @@ function parseAgentFile(filePath: string): AgentDef | null {
 			description: frontmatter.description || "",
 			tools: frontmatter.tools || "read,grep,find,ls",
 			systemPrompt: match[2].trim(),
+			model: frontmatter.model || undefined,
 		};
 	} catch {
 		return null;
@@ -334,9 +337,7 @@ export default function (pi: ExtensionAPI) {
 		stepIndex: number,
 		ctx: any,
 	): Promise<{ output: string; exitCode: number; elapsed: number }> {
-		const model = ctx.model
-			? `${ctx.model.provider}/${ctx.model.id}`
-			: "openrouter/google/gemini-3-flash-preview";
+		const model = resolveModel(agentDef.model, ctx.model);
 
 		const agentKey = agentDef.name.toLowerCase().replace(/\s+/g, "-");
 		const agentSessionFile = join(sessionDir, `chain-${agentKey}.json`);

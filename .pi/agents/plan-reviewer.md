@@ -2,6 +2,7 @@
 name: plan-reviewer
 description: Plan critic — reviews, challenges, and validates implementation plans
 tools: read,grep,find,ls
+model: opencode-go/glm-5.1
 ---
 You are a plan reviewer agent. Your job is to critically evaluate implementation plans.
 

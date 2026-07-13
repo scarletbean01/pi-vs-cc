@@ -22,6 +22,7 @@ import { spawn } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync } from "fs";
 import { join, resolve } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
+import { resolveModel } from "./model-utils.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -31,6 +32,7 @@ interface ExpertDef {
 	tools: string;
 	systemPrompt: string;
 	file: string;
+	model?: string;   // raw frontmatter value: alias or provider/id
 }
 
 interface ExpertState {
@@ -71,6 +73,7 @@ function parseAgentFile(filePath: string): ExpertDef | null {
 			tools: frontmatter.tools || "read,grep,find,ls",
 			systemPrompt: match[2].trim(),
 			file: filePath,
+			model: frontmatter.model || undefined,
 		};
 	} catch {
 		return null;
@@ -272,9 +275,7 @@ export default function (pi: ExtensionAPI) {
 			updateWidget();
 		}, 1000);
 
-		const model = ctx.model
-			? `${ctx.model.provider}/${ctx.model.id}`
-			: "openrouter/google/gemini-3-flash-preview";
+		const model = resolveModel(state.def.model, ctx.model);
 
 		const args = [
 			"--mode", "json",
