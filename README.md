@@ -5,6 +5,8 @@ A collection of [Pi Coding Agent](https://github.com/mariozechner/pi-coding-agen
 > Want to see these **6+ unique Pi Agent Harnesses in action?** Watch [Pi Coding Agent: The Only Claude Code Competitor](https://youtu.be/f8cfH5XX-XU).
 
 > 🆕 **Pi-to-Pi agent-to-agent communication**. Jump to [Pi-to-Pi Communication](#pi-to-pi-agent-to-agent-communication) or watch [Pi to Pi: Two-Way Agent Orchestration](https://youtu.be/PIdETjcXNIk).
+>
+> 🆕 **Per-agent model assignment** — each specialist agent can now declare its own model in frontmatter. Jump to [Per-Agent Model Assignment](#per-agent-model-assignment).
 
 <div align="center">
   <img src="./images/pi-logo.png" alt="pi-vs-cc" width="700">
@@ -85,12 +87,13 @@ bun install
 | **tool-counter-widget** | `extensions/tool-counter-widget.ts` | Live-updating above-editor widget showing per-tool call counts with background colors                                                                      |
 | **subagent-widget**     | `extensions/subagent-widget.ts`     | `/sub <task>` command that spawns background Pi subagents; each gets its own streaming live-progress widget                                                |
 | **tilldone**            | `extensions/tilldone.ts`            | Task discipline system — define tasks before starting work; tracks completion state across steps; shows persistent task list in footer with live progress  |
-| **agent-team**          | `extensions/agent-team.ts`          | Dispatcher-only orchestrator: the primary agent delegates all work to named specialist agents via `dispatch_agent`; shows a grid dashboard                 |
-| **system-select**       | `extensions/system-select.ts`       | `/system` command to interactively switch between agent personas/system prompts from `.pi/agents/`, `.claude/agents/`, `.gemini/agents/`, `.codex/agents/` |
+| **agent-team**          | `extensions/agent-team.ts`          | Dispatcher-only orchestrator: the primary agent delegates all work to named specialist agents via `dispatch_agent`; shows a grid dashboard with per-agent model labels                 |
+| **system-select**       | `extensions/system-select.ts`       | `/system` command, `/system <name>` direct switch, `--agent <name>` startup preselect, and Ctrl+S / Ctrl+Shift+S cycling between agent personas from `.pi/agents/`, `.claude/agents/`, `.gemini/agents/`, `.codex/agents/` with a color swatch widget |
 | **damage-control**      | `extensions/damage-control.ts`      | Real-time safety auditing — intercepts dangerous bash patterns and enforces path-based access controls from `.pi/damage-control-rules.yaml`                |
 | **damage-control-continue** | `extensions/damage-control-continue.ts` | Same rules as `damage-control`, but blocked tool calls return actionable feedback instead of aborting — the agent's turn keeps running and can adapt   |
-| **agent-chain**         | `extensions/agent-chain.ts`         | Sequential pipeline orchestrator — chains multiple agents where each step's output feeds into the next step's prompt; use `/chain` to select and run       |
-| **pi-pi**               | `extensions/pi-pi.ts`               | Meta-agent that builds Pi agents using parallel research experts for documentation                                                                         |
+| **agent-chain**         | `extensions/agent-chain.ts`         | Sequential pipeline orchestrator — chains multiple agents where each step's output feeds into the next step's prompt; each step can declare its own model; use `/chain` to select and run       |
+| **pi-pi**               | `extensions/pi-pi.ts`               | Meta-agent that builds Pi agents using parallel research experts for documentation; each expert can declare its own model                                                         |
+| **model-utils**         | `extensions/model-utils.ts`         | Shared model resolution utilities — `MODEL_ALIASES` map and `resolveModel()` used by `agent-team`, `agent-chain`, and `pi-pi` for per-agent model assignment |
 | **coms**                | `extensions/coms.ts`                | Peer-to-peer messaging between Pi agents on the **same machine** over Unix sockets / named pipes. Tools: `coms_list`, `coms_send`, `coms_get`, `coms_await` |
 | **coms-net**            | `extensions/coms-net.ts`            | Networked Pi-to-Pi via a shared HTTP/SSE hub (`scripts/coms-net-server.ts`). Works across machines on a LAN or behind a remote URL. Tools: `coms_net_*`     |
 | **session-replay**      | `extensions/session-replay.ts`      | Scrollable timeline overlay of session history - showcasing customizable dialog UI                                                                         |
@@ -135,8 +138,8 @@ just ext-tool-counter       # Rich two-line footer with tool tally
 just ext-tool-counter-widget # Per-tool widget above the editor
 just ext-subagent-widget    # Subagent spawner with live progress widgets
 just ext-tilldone           # Task discipline system with live progress tracking
-just ext-agent-team         # Multi-agent orchestration grid dashboard
-just ext-system-select      # Agent persona switcher via /system command
+just ext-agent-team         # Multi-agent orchestration grid dashboard (with tool-counter-widget)
+just ext-system-select      # Agent persona switcher via /system, --agent, or Ctrl+S shortcuts
 just ext-damage-control     # Safety auditing + minimal footer
 just ext-damage-control-continue # Same rules, but blocked turns keep running
 just ext-agent-chain        # Sequential pipeline orchestrator with step chaining
@@ -179,6 +182,7 @@ pi-vs-cc/
 │   ├── themes/          # Custom themes (.json) used by theme-cycler
 │   ├── damage-control-rules.yaml # Path/command rules for safety auditing
 │   └── settings.json    # Pi workspace settings
+├── docs/               # Feature documentation (e.g. per-agent-model-assignment.md)
 ├── justfile             # just task definitions
 ├── CLAUDE.md            # Conventions and tooling reference (for agents)
 ├── THEME.md             # Color token conventions for extension authors
@@ -207,6 +211,67 @@ Unlike the dynamic dispatcher, `agent-chain` acts as a sequential pipeline orche
 - Workflows are defined as a list of `steps`, where each step specifies an `agent` and a `prompt`. 
 - The `$INPUT` variable injects the previous step's output (or the user's initial prompt for the first step), and `$ORIGINAL` always contains the user's initial prompt.
 - Example: The `plan-build-review` pipeline feeds your prompt to the `planner`, passes the plan to the `builder`, and finally sends the code to the `reviewer`.
+- Each step's agent can declare its own model via `model:` frontmatter (see [Per-Agent Model Assignment](#per-agent-model-assignment)).
+
+---
+
+## Per-Agent Model Assignment
+
+By default, every specialist agent spawned by `agent-team`, `agent-chain`, or `pi-pi` inherits the model from the parent Pi session (`ctx.model`) or falls back to a single hardcoded default. **Per-agent model assignment** lets each agent declare its own model in its `.md` frontmatter, so you can run a heavyweight planner on Claude Opus while keeping a lightweight scout on Gemini Flash.
+
+### How it works
+
+Add a `model:` line to any agent definition file in `.pi/agents/`:
+
+```yaml
+---
+name: planner
+description: Architecture and implementation planning
+tools: read,grep,find,ls
+model: opencode-go/glm-5.1
+---
+You are a planner agent…
+```
+
+The value can be either:
+
+- **A full `provider/id` string** (e.g. `anthropic/claude-sonnet-4-20250514`, `opencode-go/minimax-m3`) — passed through as-is to `pi --model`.
+- **A short alias** from the `MODEL_ALIASES` map in [`extensions/model-utils.ts`](extensions/model-utils.ts) — e.g. `opus`, `sonnet`, `haiku`, `flash`, `gemini`, `gpt-4.1`, `gpt-5`.
+
+### Model resolution precedence
+
+The `resolveModel()` function in [`model-utils.ts`](extensions/model-utils.ts) resolves the model at dispatch time with the following precedence:
+
+1. **Agent-declared model** — the `model:` frontmatter value (alias or full string).
+2. **Parent session model** — inherited from `ctx.model` if the agent didn't declare one.
+3. **Hardcoded fallback** — `openrouter/google/gemini-3-flash-preview`.
+
+If an unknown alias is provided, a warning is logged and the parent/fallback model is used instead.
+
+### Where it's used
+
+| Extension | Field | Behavior |
+| --- | --- | --- |
+| **agent-team** | `AgentDef.model` | Dashboard cards show `◆ <model>` or `◆ inherited`; `before_agent_start` catalog includes `**Model:**` line so the dispatcher knows each agent's model |
+| **agent-chain** | `AgentDef.model` | Each pipeline step resolves its model independently |
+| **pi-pi** | `ExpertDef.model` | Each research expert can use a different model |
+| **system-select** | — | Uses `--agent <name>` preselect and model display in the status line |
+
+### Current agent model assignments
+
+The agents in this repo are configured as follows:
+
+| Agent | Model |
+| --- | --- |
+| `builder` | `opencode-go/minimax-m3` |
+| `scout` | `opencode-go/minimax-m3` |
+| `planner` | `opencode-go/glm-5.1` |
+| `reviewer` | `opencode-go/glm-5.1` |
+| `plan-reviewer` | `opencode-go/glm-5.1` |
+
+### Full specification
+
+See [`docs/per-agent-model-assignment.md`](docs/per-agent-model-assignment.md) for the complete design document covering the current architecture, the `resolveModel()` implementation, edge cases, and the porting pattern shared across all four extensions.
 
 ---
 
@@ -348,6 +413,7 @@ Companion docs cover the conventions used across all extensions in this repo:
 - **[RESERVED_KEYS.md](RESERVED_KEYS.md)** — Pi reserved keybindings, overridable keys, and safe keys for extension authors.
 - **[THEME.md](THEME.md)** — Color language: which Pi theme tokens (`success`, `accent`, `warning`, `dim`, `muted`) map to which UI roles, with examples.
 - **[TOOLS.md](TOOLS.md)** — Function signatures for the built-in tools available inside extensions (`read`, `bash`, `edit`, `write`).
+- **[docs/per-agent-model-assignment.md](docs/per-agent-model-assignment.md)** — Full spec for per-agent model assignment: `model:` frontmatter, `MODEL_ALIASES`, and `resolveModel()` resolution precedence.
 
 ---
 
