@@ -51,6 +51,17 @@ interface AgentDef {
 
 const DEFAULT_ALIASES = new Set(["default", "none", "reset"]);
 
+/**
+ * Tool name prefixes for "infrastructure" tools that should always be
+ * available regardless of the selected agent's declared tool restrictions.
+ * These are coordination/messaging tools that agents need to report results
+ * back to their dispatcher — stripping them breaks multi-agent workflows.
+ *
+ * When an agent declares a `tools:` frontmatter list, system-select merges
+ * tools matching these prefixes back in so the agent retains coms access.
+ */
+const INFRASTRUCTURE_TOOL_PREFIXES = ["coms_"];
+
 function parseFrontmatter(raw: string): { fields: Record<string, string>; body: string } {
 	const match = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
 	if (!match) return { fields: {}, body: raw };
@@ -132,7 +143,18 @@ export default function (pi: ExtensionAPI) {
 		const agent = entries[idx] ?? null;
 
 		if (agent) {
-			pi.setActiveTools(agent.tools.length > 0 ? agent.tools : defaultTools);
+			if (agent.tools.length > 0) {
+				// Start with the agent's declared tools, then add back any
+				// infrastructure tools (coms_*, etc.) from the default set so
+				// coordination/messaging tools are never stripped by agent
+				// tool restrictions.
+				const infraTools = defaultTools.filter(t =>
+					INFRASTRUCTURE_TOOL_PREFIXES.some(pfx => t.startsWith(pfx)),
+				);
+				pi.setActiveTools([...new Set([...agent.tools, ...infraTools])]);
+			} else {
+				pi.setActiveTools(defaultTools);
+			}
 			ctx.ui.setStatus("system-prompt", `System Prompt: ${displayName(agent.name)}`);
 			return displayName(agent.name);
 		} else {

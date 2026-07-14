@@ -87,6 +87,9 @@ ext-session-replay:
 ext-theme-cycler:
     pi -e extensions/theme-cycler.ts -e extensions/minimal.ts
 
+
+ext-boot:
+    pi -e extensions/system-select.ts -e extensions/minimal.ts -e extensions/theme-cycler.ts -e extensions/bootstrap.ts -e extensions/coms.ts --agent dispatcher --cname dispatcher --name dispatcher
 # utils
 
 # Open pi with one or more stacked extensions in a new terminal: just open minimal tool-counter

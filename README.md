@@ -98,6 +98,8 @@ bun install
 | **coms-net**            | `extensions/coms-net.ts`            | Networked Pi-to-Pi via a shared HTTP/SSE hub (`scripts/coms-net-server.ts`). Works across machines on a LAN or behind a remote URL. Tools: `coms_net_*`     |
 | **session-replay**      | `extensions/session-replay.ts`      | Scrollable timeline overlay of session history - showcasing customizable dialog UI                                                                         |
 | **theme-cycler**        | `extensions/theme-cycler.ts`        | Keyboard shortcuts (Ctrl+X/Ctrl+Q) and `/theme` command to cycle/switch between custom themes                                                              |
+| **bootstrap**           | `extensions/bootstrap.ts`           | Herdr-native orchestrator — the `dispatcher` persona generates herdr-spreader layouts, spawns agents as live herdr panes, coordinates over coms, and aggregates results (`/boot`) |
+| **bootstrap-utils**     | `extensions/bootstrap-utils.ts`     | Shared helpers for `bootstrap.ts` — agent scanning, task-id/session-dir creation, and extension-path resolution                                                |
 
 ---
 
@@ -146,6 +148,7 @@ just ext-agent-chain        # Sequential pipeline orchestrator with step chainin
 just ext-pi-pi              # Meta-agent that builds Pi agents using parallel experts
 just ext-session-replay     # Scrollable timeline overlay of session history
 just ext-theme-cycler       # Theme cycler + minimal footer
+just ext-boot              # Dispatcher + system-select + minimal + theme-cycler + coms (herdr-native bootstrap)
 just all                    # Open every extension in its own terminal window
 
 # Pi-to-Pi communication (see section below)
@@ -169,20 +172,22 @@ just open purpose-gate minimal tool-counter-widget
 
 ```
 pi-vs-cc/
-├── extensions/          # Pi extension source files (.ts) — one file per extension
+├── extensions/          # Pi extension source files (.ts) — one file per extension (+ shared utils like model-utils.ts, bootstrap-utils.ts, themeMap.ts)
+├── scripts/             # Standalone support scripts (coms-net-server.ts, the HTTP/SSE hub)
 ├── specs/               # Feature specifications for extensions
 ├── .pi/
-│   ├── agent-sessions/  # Ephemeral session files (gitignored)
-│   ├── agents/          # Agent definitions for team and chain extensions
+│   ├── agent-sessions/  # Ephemeral session files + bootstrap run artifacts (gitignored)
+│   ├── agents/          # Agent definitions for team, chain, pi-pi, and bootstrap orchestrator
 │   │   ├── pi-pi/       # Expert agents for the pi-pi meta-agent
 │   │   ├── agent-chain.yaml # Pipeline definition for agent-chain
 │   │   ├── teams.yaml   # Team definition for agent-team
+│   │   ├── dispatcher.md # Orchestrator persona for the bootstrap extension
 │   │   └── *.md         # Individual agent persona/system prompts
 │   ├── skills/          # Custom skills
 │   ├── themes/          # Custom themes (.json) used by theme-cycler
 │   ├── damage-control-rules.yaml # Path/command rules for safety auditing
 │   └── settings.json    # Pi workspace settings
-├── docs/               # Feature documentation (e.g. per-agent-model-assignment.md)
+├── docs/               # Feature documentation (per-agent-model-assignment.md, herdr-bootstrap.md)
 ├── justfile             # just task definitions
 ├── CLAUDE.md            # Conventions and tooling reference (for agents)
 ├── THEME.md             # Color token conventions for extension authors
@@ -212,6 +217,25 @@ Unlike the dynamic dispatcher, `agent-chain` acts as a sequential pipeline orche
 - The `$INPUT` variable injects the previous step's output (or the user's initial prompt for the first step), and `$ORIGINAL` always contains the user's initial prompt.
 - Example: The `plan-build-review` pipeline feeds your prompt to the `planner`, passes the plan to the `builder`, and finally sends the code to the `reviewer`.
 - Each step's agent can declare its own model via `model:` frontmatter (see [Per-Agent Model Assignment](#per-agent-model-assignment)).
+
+---
+
+## Herdr-Native Agent Bootstrap
+
+The `bootstrap` extension turns a single **dispatcher** agent into a herdr-native orchestrator. Instead of spawning child `pi` processes in the background, the dispatcher generates a [herdr-spreader](https://github.com/yuk1ty/herdr-spreader) YAML layout, applies it, and every agent comes to life in its own **visible herdr pane** — so you can watch the team work in parallel. Coordination flows over `coms` (peer-to-peer messaging), and the dispatcher aggregates each agent's structured JSON results into a single report.
+
+- **Two topologies:** `chain` (sequential pipeline — each step `coms_await`s its predecessor's output) and `team` (parallel specialists that each `coms_send` results back to the dispatcher).
+- **Launch:** run inside a herdr session as the `dispatcher` persona:
+  ```bash
+  just ext-boot        # equivalent to: pi -e system-select -e minimal -e theme-cycler -e bootstrap -e coms --agent dispatcher
+  ```
+- **Drive it:** `boot chain <task>`, `boot team <task>`, or `boot auto <task>` (the dispatcher picks the topology).
+- **Prerequisites:** `herdr` installed and running (`HERDR_ENV=1`), plus the `herdr-spreader` plugin (or a standalone `herdr-spreader` binary on `PATH`).
+- **Agent frontmatter** honors `model:` (per-agent model alias/`provider/id`), `extensions:` (extra `-e` flags per agent), and `color:` (coms identity color).
+
+Results land in `.pi/agent-sessions/<task-id>/report.json` (optionally `report.md`); `boot cleanup <workspace-id>` tears down the herdr workspace and session files.
+
+For the full design, topologies, troubleshooting, and internals, see **[docs/herdr-bootstrap.md](docs/herdr-bootstrap.md)**.
 
 ---
 
@@ -414,6 +438,7 @@ Companion docs cover the conventions used across all extensions in this repo:
 - **[THEME.md](THEME.md)** — Color language: which Pi theme tokens (`success`, `accent`, `warning`, `dim`, `muted`) map to which UI roles, with examples.
 - **[TOOLS.md](TOOLS.md)** — Function signatures for the built-in tools available inside extensions (`read`, `bash`, `edit`, `write`).
 - **[docs/per-agent-model-assignment.md](docs/per-agent-model-assignment.md)** — Full spec for per-agent model assignment: `model:` frontmatter, `MODEL_ALIASES`, and `resolveModel()` resolution precedence.
+- **[docs/herdr-bootstrap.md](docs/herdr-bootstrap.md)** — Herdr-native agent bootstrap: dispatcher workflow, chain/team topologies, herdr-spreader integration, and per-agent frontmatter (`extensions:`, `color:`).
 
 ---
 

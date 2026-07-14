@@ -543,10 +543,19 @@ export default function (pi: ExtensionAPI) {
 		type: "string",
 		default: undefined,
 	});
+	// Default the project namespace to the CWD basename so pi instances
+	// launched in the same directory share a coms namespace without
+	// needing an explicit --project flag. Falls back to "default" when
+	// CWD is empty or root.
+	const projectBasename =
+		(process.cwd()
+			.split("/")
+			.filter(Boolean)
+			.pop()) || "default";
 	pi.registerFlag("project", {
 		description: "Project namespace for peer discovery",
 		type: "string",
-		default: "default",
+		default: projectBasename,
 	});
 	pi.registerFlag("color", {
 		description: "Hex color #RRGGBB (otherwise from frontmatter or palette fallback)",
@@ -775,7 +784,7 @@ export default function (pi: ExtensionAPI) {
 		// 1. Resolve identity from CLI flags > frontmatter > defaults.
 		const flags = readCliFlags(pi);
 		const fm = readFrontmatterFromArgv(process.argv);
-		const project = flags.project || "default";
+		const project = flags.project || projectBasename;
 		const explicit = flags.explicit === true;
 		const session_id = ulid();
 
@@ -954,7 +963,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ━━ Pool widget rendering ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 	function renderPool(width: number, theme: Theme): string[] {
-		const projectFilter = displayProject ?? identity?.project ?? "default";
+		const projectFilter = displayProject ?? identity?.project ?? projectBasename;
 		const registryEntries = projectFilter === "*"
 			? readAllRegistryEntriesAcrossProjects()
 			: readAllRegistryEntries(projectFilter);
@@ -1196,7 +1205,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_callId, params) {
 			const includeExp = params.include_explicit === true;
-			const projectFilter = params.project ?? identity?.project ?? "default";
+			const projectFilter = params.project ?? identity?.project ?? projectBasename;
 			const projects = projectFilter === "*" ? listProjects() : [projectFilter];
 
 			const collected: { entry: RegistryEntry; project: string }[] = [];
