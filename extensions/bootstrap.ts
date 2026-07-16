@@ -593,11 +593,13 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{
 						type: "text",
-						text: "Could not detect current herdr workspace. Make sure you're running inside herdr.",
+						text: `Could not detect current herdr workspace. Make sure you're running inside herdr. (task_id: ${taskId}, session_dir: ${sessionDir})`,
 					}],
 					details: {
 						status: "error" as const,
 						error: "Could not detect current herdr workspace",
+						task_id: taskId,
+						session_dir: sessionDir,
 						pane_manifest: [],
 						dispatcher_coms_name: dispatcherComsName,
 					},
@@ -620,11 +622,13 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{
 						type: "text",
-						text: `Failed to spawn agents: ${e?.message || String(e)}`,
+						text: `Failed to spawn agents: ${e?.message || String(e)} (task_id: ${taskId}, session_dir: ${sessionDir})`,
 					}],
 					details: {
 						status: "error" as const,
 						error: `Failed to spawn agents: ${e?.message || String(e)}`,
+						task_id: taskId,
+						session_dir: sessionDir,
 						pane_manifest: [],
 						dispatcher_coms_name: dispatcherComsName,
 					},
@@ -638,10 +642,12 @@ export default function (pi: ExtensionAPI) {
 			return {
 				content: [{
 					type: "text",
-					text: `Bootstrap applied. ${paneManifest.length} agent(s) spawned in workspace ${workspaceId}. See details for manifest.`,
+					text: `Bootstrap applied. task_id: "${taskId}" — pass this exact string (NOT the workspace id) to bootstrap_report/bootstrap_cleanup. ${paneManifest.length} agent(s) spawned in workspace ${workspaceId}. See details for manifest.`,
 				}],
 				details: {
 					status: "applied" as const,
+					task_id: taskId,
+					session_dir: sessionDir,
 					workspace_id: workspaceId,
 					pane_manifest: paneManifest,
 					dispatcher_coms_name: dispatcherComsName,
@@ -656,9 +662,9 @@ export default function (pi: ExtensionAPI) {
 		name: "bootstrap_report",
 		label: "Bootstrap Report",
 		description:
-			"Persist collected agent results to JSON (always) and optionally markdown. Call this once all agent results are collected.",
+			"Persist collected agent results to JSON (always) and optionally markdown. Call this once all agent results are collected. IMPORTANT: task_id must be the exact string from bootstrap_generate's response details.task_id (a slug like 'my-task-ab12cd'), NOT the herdr workspace_id mentioned in the response text.",
 		parameters: Type.Object({
-			task_id: Type.String({ description: "The task ID returned by bootstrap_generate" }),
+			task_id: Type.String({ description: "The exact task_id string returned in bootstrap_generate's response (details.task_id) — NOT the herdr workspace_id." }),
 			results: Type.Array(
 				Type.Object({
 					agent_name: Type.String(),
@@ -698,7 +704,27 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const cwd = process.cwd();
-			const sessionDir = join(cwd, ".pi", "agent-sessions", task_id);
+			const sessionsRoot = join(cwd, ".pi", "agent-sessions");
+			const sessionDir = join(sessionsRoot, task_id);
+
+			if (!existsSync(sessionDir)) {
+				const available = existsSync(sessionsRoot) ? readdirSync(sessionsRoot) : [];
+				return {
+					content: [{
+						type: "text",
+						text: `No session directory found for task_id "${task_id}". This is usually because task_id was confused with the workspace_id. ` +
+							(available.length
+								? `Available session dirs: ${available.join(", ")}`
+								: `No session directories exist under ${sessionsRoot}.`),
+					}],
+					details: {
+						status: "error" as const,
+						error: "session directory not found",
+						task_id,
+						available_task_ids: available,
+					},
+				};
+			}
 
 			// Always write report.json
 			const jsonPath = join(sessionDir, "report.json");
@@ -732,9 +758,9 @@ export default function (pi: ExtensionAPI) {
 		name: "bootstrap_cleanup",
 		label: "Bootstrap Cleanup",
 		description:
-			"Close agent tabs and remove the session directory for a completed bootstrap run.",
+			"Close agent tabs and remove the session directory for a completed bootstrap run. IMPORTANT: task_id must be the exact string from bootstrap_generate's response details.task_id, NOT the herdr workspace_id.",
 			parameters: Type.Object({
-				task_id: Type.String({ description: "The task ID from bootstrap_generate" }),
+				task_id: Type.String({ description: "The exact task_id string returned in bootstrap_generate's response (details.task_id) — NOT the herdr workspace_id." }),
 				tab_ids: Type.Array(Type.String(), { description: "The herdr tab IDs to close (from the pane manifest)" }),
 			}),
 
@@ -742,7 +768,27 @@ export default function (pi: ExtensionAPI) {
 				const { task_id, tab_ids } = params as { task_id: string; tab_ids: string[] };
 
 				const cwd = process.cwd();
-				const sessionDir = join(cwd, ".pi", "agent-sessions", task_id);
+				const sessionsRoot = join(cwd, ".pi", "agent-sessions");
+				const sessionDir = join(sessionsRoot, task_id);
+
+				if (!existsSync(sessionDir)) {
+					const available = existsSync(sessionsRoot) ? readdirSync(sessionsRoot) : [];
+					return {
+						content: [{
+							type: "text",
+							text: `No session directory found for task_id "${task_id}". This is usually because task_id was confused with the workspace_id. ` +
+								(available.length
+									? `Available session dirs: ${available.join(", ")}`
+									: `No session directories exist under ${sessionsRoot}.`),
+						}],
+						details: {
+							status: "error" as const,
+							error: "session directory not found",
+							task_id,
+							available_task_ids: available,
+						},
+					};
+				}
 
 				// 1. Close each agent tab
 				let tabsClosed = 0;
