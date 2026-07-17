@@ -242,13 +242,15 @@ export function ensureSessionDir(cwd: string, taskId: string): string {
  * forcing them to recompute the path layout.
  *
  * Input validation: an empty/whitespace `taskId` and any `taskId` that
- * contains a `/` or a `..` path component are rejected up-front (without
- * touching the filesystem beyond computing `sessionsRoot`) and return the
- * same error shape as a normal "not found" result. This prevents callers
- * from accidentally resolving paths outside `.pi/agent-sessions/` via
- * path-traversal. The directory listing in the error branch is also
- * guarded by a try/catch so a permissions failure on the parent directory
- * degrades to an empty `available` list rather than throwing.
+ * contains a `/` or has a path component equal to `.` or `..` are rejected
+ * up-front (without touching the filesystem beyond computing `sessionsRoot`)
+ * and return the same error shape as a normal "not found" result. This
+ * keeps `sessionDir` strictly under `.pi/agent-sessions/` by preventing
+ * `.` (which `path.join` normalizes to the parent dir) and `..` (which
+ * escapes upward) from being used as a task id. The directory listing in
+ * the error branch is also guarded by a try/catch so a permissions failure
+ * on the parent directory degrades to an empty `available` list rather than
+ * throwing.
  */
 export function resolveSessionDir(
 	cwd: string,
@@ -262,8 +264,11 @@ export function resolveSessionDir(
 		return { error: "session directory not found", available: [], sessionsRoot };
 	}
 
-	// Reject path-traversal: any "/" in the taskId or ".." as a component.
-	if (taskId.includes("/") || taskId.split("/").some(p => p === "..")) {
+	// Reject path-traversal/self-reference: any "/" in the taskId or any
+	// path component equal to ".." or ".". Without this, "." collapses to
+	// sessionsRoot (join normalizes it away) and ".." escapes upward — both
+	// must be rejected to keep `sessionDir` strictly under sessionsRoot.
+	if (taskId.includes("/") || taskId.split("/").some(p => p === ".." || p === ".")) {
 		return { error: "session directory not found", available: [], sessionsRoot };
 	}
 
