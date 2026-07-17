@@ -226,6 +226,64 @@ export function ensureSessionDir(cwd: string, taskId: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Session directory resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the session directory for a given task id without creating it.
+ *
+ * Returns `{ sessionDir }` when `.pi/agent-sessions/<taskId>/` already
+ * exists. Otherwise returns `{ error, available, sessionsRoot }` so the
+ * caller can surface a clear "did you pass a workspace_id instead?"
+ * message along with the list of valid task ids currently on disk.
+ *
+ * `sessionsRoot` is included on the error branch to preserve the existing
+ * "No session directories exist under <path>" wording in callers without
+ * forcing them to recompute the path layout.
+ *
+ * Input validation: an empty/whitespace `taskId` and any `taskId` that
+ * contains a `/` or a `..` path component are rejected up-front (without
+ * touching the filesystem beyond computing `sessionsRoot`) and return the
+ * same error shape as a normal "not found" result. This prevents callers
+ * from accidentally resolving paths outside `.pi/agent-sessions/` via
+ * path-traversal. The directory listing in the error branch is also
+ * guarded by a try/catch so a permissions failure on the parent directory
+ * degrades to an empty `available` list rather than throwing.
+ */
+export function resolveSessionDir(
+	cwd: string,
+	taskId: string,
+): { sessionDir: string } | { error: string; available: string[]; sessionsRoot: string } {
+	const sessionsRoot = join(cwd, ".pi", "agent-sessions");
+
+	// Reject empty/whitespace taskId — no filesystem access beyond the
+	// constant sessionsRoot path.
+	if (!taskId || !taskId.trim()) {
+		return { error: "session directory not found", available: [], sessionsRoot };
+	}
+
+	// Reject path-traversal: any "/" in the taskId or ".." as a component.
+	if (taskId.includes("/") || taskId.split("/").some(p => p === "..")) {
+		return { error: "session directory not found", available: [], sessionsRoot };
+	}
+
+	const sessionDir = join(sessionsRoot, taskId);
+	if (existsSync(sessionDir)) {
+		return { sessionDir };
+	}
+	let available: string[] = [];
+	if (existsSync(sessionsRoot)) {
+		try {
+			available = readdirSync(sessionsRoot);
+		} catch {
+			// Parent directory unreadable — degrade to empty list.
+			available = [];
+		}
+	}
+	return { error: "session directory not found", available, sessionsRoot };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Extension path resolution
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -26,6 +26,7 @@ import {
 	scanAgents,
 	generateTaskId,
 	ensureSessionDir,
+	resolveSessionDir,
 	resolveExtensionPaths,
 	type AgentDef,
 } from "./bootstrap-utils.ts";
@@ -500,6 +501,37 @@ function buildMarkdownReport(results: ReportResult[]): string {
 	return lines.join("\n") + "\n";
 }
 
+/**
+ * Build the standard "session directory not found" error response used by
+ * bootstrap_report and bootstrap_cleanup when resolveSessionDir returns
+ * the error branch (i.e. the task_id has no matching directory under
+ * `.pi/agent-sessions/`).
+ *
+ * The output wording, structure, and field names are byte-identical to the
+ * previous inline blocks in both tools so existing agents and tests that
+ * match on these strings keep working.
+ */
+function sessionDirNotFoundResponse(
+	task_id: string,
+	resolved: { error: string; available: string[]; sessionsRoot: string },
+) {
+	return {
+		content: [{
+			type: "text",
+			text: `No session directory found for task_id "${task_id}". This is usually because task_id was confused with the workspace_id. ` +
+				(resolved.available.length
+					? `Available session dirs: ${resolved.available.join(", ")}`
+					: `No session directories exist under ${resolved.sessionsRoot}.`),
+		}],
+		details: {
+			status: "error" as const,
+			error: resolved.error,
+			task_id,
+			available_task_ids: resolved.available,
+		},
+	};
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Extension entry point
 // ─────────────────────────────────────────────────────────────────────────────
@@ -704,27 +736,13 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const cwd = process.cwd();
-			const sessionsRoot = join(cwd, ".pi", "agent-sessions");
-			const sessionDir = join(sessionsRoot, task_id);
+			const resolved = resolveSessionDir(cwd, task_id);
 
-			if (!existsSync(sessionDir)) {
-				const available = existsSync(sessionsRoot) ? readdirSync(sessionsRoot) : [];
-				return {
-					content: [{
-						type: "text",
-						text: `No session directory found for task_id "${task_id}". This is usually because task_id was confused with the workspace_id. ` +
-							(available.length
-								? `Available session dirs: ${available.join(", ")}`
-								: `No session directories exist under ${sessionsRoot}.`),
-					}],
-					details: {
-						status: "error" as const,
-						error: "session directory not found",
-						task_id,
-						available_task_ids: available,
-					},
-				};
+			if ("error" in resolved) {
+				return sessionDirNotFoundResponse(task_id, resolved);
 			}
+
+			const sessionDir = resolved.sessionDir;
 
 			// Always write report.json
 			const jsonPath = join(sessionDir, "report.json");
@@ -768,27 +786,13 @@ export default function (pi: ExtensionAPI) {
 				const { task_id, tab_ids } = params as { task_id: string; tab_ids: string[] };
 
 				const cwd = process.cwd();
-				const sessionsRoot = join(cwd, ".pi", "agent-sessions");
-				const sessionDir = join(sessionsRoot, task_id);
+				const resolved = resolveSessionDir(cwd, task_id);
 
-				if (!existsSync(sessionDir)) {
-					const available = existsSync(sessionsRoot) ? readdirSync(sessionsRoot) : [];
-					return {
-						content: [{
-							type: "text",
-							text: `No session directory found for task_id "${task_id}". This is usually because task_id was confused with the workspace_id. ` +
-								(available.length
-									? `Available session dirs: ${available.join(", ")}`
-									: `No session directories exist under ${sessionsRoot}.`),
-						}],
-						details: {
-							status: "error" as const,
-							error: "session directory not found",
-							task_id,
-							available_task_ids: available,
-						},
-					};
+				if ("error" in resolved) {
+					return sessionDirNotFoundResponse(task_id, resolved);
 				}
+
+				const sessionDir = resolved.sessionDir;
 
 				// 1. Close each agent tab
 				let tabsClosed = 0;
@@ -804,13 +808,14 @@ export default function (pi: ExtensionAPI) {
 
 				const allTabsClosed = tabsClosed === tab_ids.length;
 
-				// 2. Remove session directory
+				// 2. Remove session directory.
+				// resolveSessionDir has already confirmed the directory exists,
+				// so rmSync with force:true is sufficient — no existsSync guard
+				// needed.
 				let sessionDirRemoved = false;
 				let rmError: string | undefined;
 				try {
-					if (existsSync(sessionDir)) {
-						rmSync(sessionDir, { recursive: true, force: true });
-					}
+					rmSync(sessionDir, { recursive: true, force: true });
 					sessionDirRemoved = true;
 				} catch (e: any) {
 					rmError = e?.message || String(e);
